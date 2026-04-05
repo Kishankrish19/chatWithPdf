@@ -276,7 +276,25 @@ async def summarize_raw_text(text: str):
     if not text: return {"error": "Provide text"}
     # You can hook this up to the NVIDIA API just like the chat endpoint!
     return {"status": "Ready to connect to LLM", "preview": text[:50] + "..."}
+    
+# ==========================================
+# 6.5 MODULE: BIRTHDAY AUTH ROUTER
+# ==========================================
+auth_router = APIRouter(prefix="/auth", tags=["Authentication"])
 
+class PasswordRequest(BaseModel):
+    password: str
+
+@auth_router.post("/verify-bday-pass")
+async def verify_bday_pass(request: PasswordRequest):
+    # Fetch the password from Render environment variables
+    # (Make sure you set 'BdayPass' in the Render dashboard!)
+    correct_password = os.getenv("BdayPass", "password") 
+    
+    if request.password == correct_password:
+        return {"valid": True}
+    else:
+        return {"valid": False}
 
 # ==========================================
 # 7. ASSEMBLE THE APP
@@ -284,3 +302,4 @@ async def summarize_raw_text(text: str):
 app.include_router(sys_router)
 app.include_router(pdf_router)
 app.include_router(tools_router)
+app.include_router(auth_router)
