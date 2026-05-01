@@ -216,8 +216,8 @@ def server_stats():
 pdf_router = APIRouter(prefix="/pdf", tags=["PDF Engine"])
 
 NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY")
-NVIDIA_URL = os.getenv("NVIDIA_URL", "https://integrate.api.nvidia.com/v1/chat/completions")
-MODEL_NAME = os.getenv("MODEL_NAME", "meta/llama3-70b-instruct")
+NVIDIA_URL = os.getenv("NVIDIA_URL", "https://api.nvidia.com/v1/ai/chat/completions")
+MODEL_NAME = os.getenv("MODEL_NAME", "meta/llama-3.1-70b-instruct")
 
 class QuestionRequest(BaseModel):
     doc_id: str
@@ -254,7 +254,16 @@ async def chat_pdf(request: QuestionRequest):
     prompt = f"Based on this text from '{doc_data['name']}':\n{doc_data['text'][:8000]}\n\nAnswer: {request.question}"
 
     headers = {"Authorization": f"Bearer {NVIDIA_API_KEY}", "Content-Type": "application/json"}
-    payload = {"model": MODEL_NAME, "messages": [{"role": "user", "content": prompt}], "temperature": 0.5, "max_tokens": 500}
+    payload = {
+    "model": MODEL_NAME,
+    "messages": [
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": prompt}
+    ],
+    "temperature": 0.5,
+    "max_tokens": 500,
+    "stream": False
+    }
 
     async with httpx.AsyncClient() as client:
         try:
@@ -262,7 +271,8 @@ async def chat_pdf(request: QuestionRequest):
             response.raise_for_status()
             return {"answer": response.json()["choices"][0]["message"]["content"]}
         except httpx.HTTPStatusError as e:
-            raise HTTPException(status_code=e.response.status_code, detail="LLM Provider Error")
+            raise HTTPException(status_code=e.response.status_code,detail=e.response.text  # shows real error from NVIDIA
+                                )
 
 
 # ==========================================
