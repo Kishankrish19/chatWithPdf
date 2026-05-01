@@ -408,7 +408,7 @@ NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY")
 # ✅ FIXED URL (THIS WAS YOUR MAIN ISSUE)
 NVIDIA_URL = os.getenv("NVIDIA_URL", "https://api.nvidia.com/v1/ai/chat/completions")
 
-MODEL_NAME = os.getenv("MODEL_NAME", "meta/llama3-70b-instruct")
+MODEL_NAME = os.getenv("MODEL_NAME", "meta/llama-3.1-70b-instruct")
 
 class QuestionRequest(BaseModel):
     doc_id: str
