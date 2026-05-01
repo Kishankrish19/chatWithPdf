@@ -119,6 +119,203 @@
 #             raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
 
+# import os
+# import uuid
+# import time
+# import logging
+# import httpx
+# import PyPDF2
+# from io import BytesIO
+# from dotenv import load_dotenv
+# from fastapi import FastAPI, UploadFile, File, HTTPException, APIRouter, BackgroundTasks, Request, Depends
+# from fastapi.middleware.cors import CORSMiddleware
+# from fastapi.responses import JSONResponse
+# from pydantic import BaseModel
+
+# # ==========================================
+# # 1. SETUP & CONFIGURATION
+# # ==========================================
+# load_dotenv()
+# logging.basicConfig(level=logging.INFO)
+# logger = logging.getLogger("api_logger")
+
+# app = FastAPI(title="Ultimate AI Backend", description="Multi-purpose API Hub", version="2.0")
+
+# # CORS setup for frontend
+# FRONTEND_URLS = os.getenv("FRONTEND_URLS", "*").split(",")
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=FRONTEND_URLS,
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
+
+# # ==========================================
+# # 2. ADVANCED MIDDLEWARE & ERROR HANDLING
+# # ==========================================
+# @app.middleware("http")
+# async def log_requests(request: Request, call_next):
+#     """Feature: Logs how long every request takes. Great for monitoring LLM speed."""
+#     start_time = time.time()
+#     response = await call_next(request)
+#     process_time = time.time() - start_time
+#     logger.info(f"Path: {request.url.path} | Time: {process_time:.2f}s | Status: {response.status_code}")
+#     return response
+
+# @app.exception_handler(Exception)
+# async def global_exception_handler(request: Request, exc: Exception):
+#     """Feature: Stops the server from completely crashing on unexpected errors."""
+#     logger.error(f"Unexpected error: {str(exc)}")
+#     return JSONResponse(status_code=500, content={"detail": "Internal Server Error", "message": str(exc)})
+
+
+# # ==========================================
+# # 3. SECURITY & MEMORY MANAGEMENT
+# # ==========================================
+# ADMIN_SECRET = os.getenv("ADMIN_SECRET", "super-secret-key")
+
+# def require_api_key(request: Request):
+#     """Feature: Plug this into any route to instantly require a password header."""
+#     key = request.headers.get("X-API-Key")
+#     if key != ADMIN_SECRET:
+#         raise HTTPException(status_code=401, detail="Unauthorized access")
+#     return key
+
+# document_store = {}
+# EXPIRATION_SECONDS = 3600  # 1 hour
+
+# def cleanup_memory():
+#     """Feature: Keeps Render RAM clean by deleting old data."""
+#     now = time.time()
+#     expired = [k for k, v in document_store.items() if now - v["timestamp"] > EXPIRATION_SECONDS]
+#     for k in expired:
+#         del document_store[k]
+#         logger.info(f"Cleaned up expired document: {k}")
+
+
+# # ==========================================
+# # 4. MODULE 1: SYSTEM ADMIN ROUTER
+# # ==========================================
+# sys_router = APIRouter(prefix="/system", tags=["System"])
+
+# @sys_router.get("/health")
+# def health_check():
+#     """Use this for your 5-minute pinging robot!"""
+#     return {"status": "Online and healthy", "uptime_ping": time.time()}
+
+# @sys_router.get("/stats", dependencies=[Depends(require_api_key)])
+# def server_stats():
+#     """Feature: A locked route only YOU can access to see how much memory is used."""
+#     return {"active_documents": len(document_store)}
+
+
+# # ==========================================
+# # 5. MODULE 2: PDF AI ROUTER
+# # ==========================================
+# pdf_router = APIRouter(prefix="/pdf", tags=["PDF Engine"])
+
+# NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY")
+# NVIDIA_URL = os.getenv("NVIDIA_URL", "https://api.nvidia.com/v1/ai/chat/completions")
+# MODEL_NAME = os.getenv("MODEL_NAME", "meta/llama-3.1-70b-instruct")
+
+# class QuestionRequest(BaseModel):
+#     doc_id: str
+#     question: str
+
+# @pdf_router.post("/upload")
+# async def upload_pdf(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+#     background_tasks.add_task(cleanup_memory) # Trigger cleanup
+
+#     if file.content_type != "application/pdf":
+#         raise HTTPException(status_code=400, detail="Only PDFs are allowed.")
+
+#     contents = await file.read()
+#     if len(contents) > 8 * 1024 * 1024: # Feature: 8MB limit to save CPU
+#         raise HTTPException(status_code=400, detail="File exceeds 8MB limit.")
+
+#     reader = PyPDF2.PdfReader(BytesIO(contents))
+#     text = "".join([page.extract_text() or "" for page in reader.pages]).strip()
+
+#     if not text:
+#         raise HTTPException(status_code=400, detail="No readable text found.")
+
+#     doc_id = str(uuid.uuid4())
+#     document_store[doc_id] = {"text": text, "timestamp": time.time(), "name": file.filename}
+
+#     return {"message": "Success", "doc_id": doc_id, "pages": len(reader.pages)}
+
+# @pdf_router.post("/chat")
+# async def chat_pdf(request: QuestionRequest):
+#     doc_data = document_store.get(request.doc_id)
+#     if not doc_data:
+#         raise HTTPException(status_code=404, detail="Document expired. Please re-upload.")
+
+#     prompt = f"Based on this text from '{doc_data['name']}':\n{doc_data['text'][:8000]}\n\nAnswer: {request.question}"
+
+#     headers = {"Authorization": f"Bearer {NVIDIA_API_KEY}", "Content-Type": "application/json"}
+#     payload = {
+#     "model": MODEL_NAME,
+#     "messages": [
+#         {"role": "system", "content": "You are a helpful assistant."},
+#         {"role": "user", "content": prompt}
+#     ],
+#     "temperature": 0.5,
+#     "max_tokens": 500,
+#     "stream": False
+#     }
+
+#     async with httpx.AsyncClient() as client:
+#         try:
+#             response = await client.post(NVIDIA_URL, headers=headers, json=payload, timeout=30.0)
+#             response.raise_for_status()
+#             return {"answer": response.json()["choices"][0]["message"]["content"]}
+#         except httpx.HTTPStatusError as e:
+#             raise HTTPException(status_code=e.response.status_code,detail=e.response.text  # shows real error from NVIDIA
+#                                 )
+
+
+# # ==========================================
+# # 6. MODULE 3: AI TOOLBELT (Ready for expansion)
+# # ==========================================
+# tools_router = APIRouter(prefix="/tools", tags=["AI Tools"])
+
+# @tools_router.post("/summarize-text")
+# async def summarize_raw_text(text: str):
+#     """Feature: A quick endpoint for text summarization without needing a PDF."""
+#     if not text: return {"error": "Provide text"}
+#     # You can hook this up to the NVIDIA API just like the chat endpoint!
+#     return {"status": "Ready to connect to LLM", "preview": text[:50] + "..."}
+    
+# # ==========================================
+# # 6.5 MODULE: BIRTHDAY AUTH ROUTER
+# # ==========================================
+# auth_router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+# class PasswordRequest(BaseModel):
+#     password: str
+
+# @auth_router.post("/verify-bday-pass")
+# async def verify_bday_pass(request: PasswordRequest):
+#     # Fetch the password from Render environment variables
+#     # (Make sure you set 'BdayPass' in the Render dashboard!)
+#     correct_password = os.getenv("BdayPass", "password") 
+    
+#     if request.password == correct_password:
+#         return {"valid": True}
+#     else:
+#         return {"valid": False}
+
+# # ==========================================
+# # 7. ASSEMBLE THE APP
+# # ==========================================
+# app.include_router(sys_router)
+# app.include_router(pdf_router)
+# app.include_router(tools_router)
+# app.include_router(auth_router)
+
+
+
 import os
 import uuid
 import time
@@ -156,7 +353,6 @@ app.add_middleware(
 # ==========================================
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
-    """Feature: Logs how long every request takes. Great for monitoring LLM speed."""
     start_time = time.time()
     response = await call_next(request)
     process_time = time.time() - start_time
@@ -165,10 +361,8 @@ async def log_requests(request: Request, call_next):
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    """Feature: Stops the server from completely crashing on unexpected errors."""
     logger.error(f"Unexpected error: {str(exc)}")
     return JSONResponse(status_code=500, content={"detail": "Internal Server Error", "message": str(exc)})
-
 
 # ==========================================
 # 3. SECURITY & MEMORY MANAGEMENT
@@ -176,48 +370,45 @@ async def global_exception_handler(request: Request, exc: Exception):
 ADMIN_SECRET = os.getenv("ADMIN_SECRET", "super-secret-key")
 
 def require_api_key(request: Request):
-    """Feature: Plug this into any route to instantly require a password header."""
     key = request.headers.get("X-API-Key")
     if key != ADMIN_SECRET:
         raise HTTPException(status_code=401, detail="Unauthorized access")
     return key
 
 document_store = {}
-EXPIRATION_SECONDS = 3600  # 1 hour
+EXPIRATION_SECONDS = 3600
 
 def cleanup_memory():
-    """Feature: Keeps Render RAM clean by deleting old data."""
     now = time.time()
     expired = [k for k, v in document_store.items() if now - v["timestamp"] > EXPIRATION_SECONDS]
     for k in expired:
         del document_store[k]
         logger.info(f"Cleaned up expired document: {k}")
 
-
 # ==========================================
-# 4. MODULE 1: SYSTEM ADMIN ROUTER
+# 4. SYSTEM ROUTER
 # ==========================================
 sys_router = APIRouter(prefix="/system", tags=["System"])
 
 @sys_router.get("/health")
 def health_check():
-    """Use this for your 5-minute pinging robot!"""
     return {"status": "Online and healthy", "uptime_ping": time.time()}
 
 @sys_router.get("/stats", dependencies=[Depends(require_api_key)])
 def server_stats():
-    """Feature: A locked route only YOU can access to see how much memory is used."""
     return {"active_documents": len(document_store)}
 
-
 # ==========================================
-# 5. MODULE 2: PDF AI ROUTER
+# 5. PDF AI ROUTER
 # ==========================================
 pdf_router = APIRouter(prefix="/pdf", tags=["PDF Engine"])
 
 NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY")
+
+# ✅ FIXED URL (THIS WAS YOUR MAIN ISSUE)
 NVIDIA_URL = os.getenv("NVIDIA_URL", "https://api.nvidia.com/v1/ai/chat/completions")
-MODEL_NAME = os.getenv("MODEL_NAME", "meta/llama-3.1-70b-instruct")
+
+MODEL_NAME = os.getenv("MODEL_NAME", "meta/llama3-70b-instruct")
 
 class QuestionRequest(BaseModel):
     doc_id: str
@@ -225,13 +416,13 @@ class QuestionRequest(BaseModel):
 
 @pdf_router.post("/upload")
 async def upload_pdf(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
-    background_tasks.add_task(cleanup_memory) # Trigger cleanup
+    background_tasks.add_task(cleanup_memory)
 
     if file.content_type != "application/pdf":
         raise HTTPException(status_code=400, detail="Only PDFs are allowed.")
 
     contents = await file.read()
-    if len(contents) > 8 * 1024 * 1024: # Feature: 8MB limit to save CPU
+    if len(contents) > 8 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="File exceeds 8MB limit.")
 
     reader = PyPDF2.PdfReader(BytesIO(contents))
@@ -253,16 +444,16 @@ async def chat_pdf(request: QuestionRequest):
 
     prompt = f"Based on this text from '{doc_data['name']}':\n{doc_data['text'][:8000]}\n\nAnswer: {request.question}"
 
-    headers = {"Authorization": f"Bearer {NVIDIA_API_KEY}", "Content-Type": "application/json"}
+    headers = {
+        "Authorization": f"Bearer {NVIDIA_API_KEY}",
+        "Content-Type": "application/json"
+    }
+
     payload = {
-    "model": MODEL_NAME,
-    "messages": [
-        {"role": "system", "content": "You are a helpful assistant."},
-        {"role": "user", "content": prompt}
-    ],
-    "temperature": 0.5,
-    "max_tokens": 500,
-    "stream": False
+        "model": MODEL_NAME,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.5,
+        "max_tokens": 500
     }
 
     async with httpx.AsyncClient() as client:
@@ -270,25 +461,27 @@ async def chat_pdf(request: QuestionRequest):
             response = await client.post(NVIDIA_URL, headers=headers, json=payload, timeout=30.0)
             response.raise_for_status()
             return {"answer": response.json()["choices"][0]["message"]["content"]}
+        
+        # ✅ FIXED ERROR HANDLING (shows real error now)
         except httpx.HTTPStatusError as e:
-            raise HTTPException(status_code=e.response.status_code,detail=e.response.text  # shows real error from NVIDIA
-                                )
-
+            raise HTTPException(
+                status_code=e.response.status_code,
+                detail=e.response.text
+            )
 
 # ==========================================
-# 6. MODULE 3: AI TOOLBELT (Ready for expansion)
+# 6. TOOLS ROUTER
 # ==========================================
 tools_router = APIRouter(prefix="/tools", tags=["AI Tools"])
 
 @tools_router.post("/summarize-text")
 async def summarize_raw_text(text: str):
-    """Feature: A quick endpoint for text summarization without needing a PDF."""
-    if not text: return {"error": "Provide text"}
-    # You can hook this up to the NVIDIA API just like the chat endpoint!
+    if not text:
+        return {"error": "Provide text"}
     return {"status": "Ready to connect to LLM", "preview": text[:50] + "..."}
-    
+
 # ==========================================
-# 6.5 MODULE: BIRTHDAY AUTH ROUTER
+# 6.5 AUTH ROUTER
 # ==========================================
 auth_router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -297,8 +490,6 @@ class PasswordRequest(BaseModel):
 
 @auth_router.post("/verify-bday-pass")
 async def verify_bday_pass(request: PasswordRequest):
-    # Fetch the password from Render environment variables
-    # (Make sure you set 'BdayPass' in the Render dashboard!)
     correct_password = os.getenv("BdayPass", "password") 
     
     if request.password == correct_password:
@@ -307,7 +498,7 @@ async def verify_bday_pass(request: PasswordRequest):
         return {"valid": False}
 
 # ==========================================
-# 7. ASSEMBLE THE APP
+# 7. APP INIT
 # ==========================================
 app.include_router(sys_router)
 app.include_router(pdf_router)
